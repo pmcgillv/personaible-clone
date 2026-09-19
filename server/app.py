@@ -1,11 +1,19 @@
 """Flask server - previews, checkout, info capture."""
-import os, sqlite3, stripe
+import os
+import sqlite3
+import stripe
 from flask import Flask, render_template_string, send_from_directory, request, jsonify
 from dotenv import load_dotenv
+
 load_dotenv()
+
+# Use absolute paths so it works on Windows
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SITES_DIR = os.path.join(BASE_DIR, "preview", "sites")
+
 app = Flask(__name__)
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
-DB = "scanner/leads.db"
+DB = os.path.join(BASE_DIR, "scanner", "leads.db")
 BASE = os.getenv("BASE_URL", "http://localhost:5000")
 
 PREVIEW = """
@@ -71,7 +79,8 @@ document.getElementById('info-form').addEventListener('submit', async (e) => {
 
 
 def get_lead(lid):
-    conn = sqlite3.connect(DB); conn.row_factory = sqlite3.Row
+    conn = sqlite3.connect(DB)
+    conn.row_factory = sqlite3.Row
     l = conn.execute("SELECT * FROM leads WHERE id=?", (lid,)).fetchone()
     conn.close()
     return l
@@ -80,8 +89,10 @@ def get_lead(lid):
 @app.route("/")
 def home():
     conn = sqlite3.connect(DB)
-    try: leads = conn.execute("SELECT id,name,problems FROM leads ORDER BY id DESC LIMIT 50").fetchall()
-    except: leads = []
+    try:
+        leads = conn.execute("SELECT id,name,problems FROM leads ORDER BY id DESC LIMIT 50").fetchall()
+    except:
+        leads = []
     conn.close()
     rows = "".join([f'<li><a href="/preview/{l[0]}">{l[0]}. {l[1]} - {l[2]}</a></li>' for l in leads])
     return f"<h1>Leads</h1><ul>{rows}</ul>"
@@ -90,29 +101,35 @@ def home():
 @app.route("/preview/<int:lid>")
 def preview(lid):
     lead = get_lead(lid)
-    if not lead: return "Not found", 404
+    if not lead:
+        return "Not found", 404
     labels = {"has_ssl": "Fixed SSL certificate",
               "has_chatbot": "Added AI chatbot",
               "has_social": "Set up social media",
               "has_video": "Added homepage video"}
     probs = (lead["problems"] or "").split(",")
-    fixes = [labels[p] for p in probs if p in labels] or ["Modern design","Mobile-friendly","SEO setup"]
-    domain = (lead["website"] or "").replace("http://","").replace("https://","").rstrip("/") or "yoursite.com"
+    fixes = [labels[p] for p in probs if p in labels] or ["Modern design", "Mobile-friendly", "SEO setup"]
+    domain = (lead["website"] or "").replace("http://", "").replace("https://", "").rstrip("/") or "yoursite.com"
     return render_template_string(PREVIEW, lead_id=lid, name=lead["name"],
                                     domain=domain, fixes=fixes,
-                                    calendly=os.getenv("CALENDLY_URL","#"))
+                                    calendly=os.getenv("CALENDLY_URL", "#"))
 
 
 @app.route("/sites/<int:lid>/")
+@app.route("/sites/<int:lid>")
 def site(lid):
-    return send_from_directory(f"preview/sites/{lid}", "index.html")
+    folder = os.path.join(SITES_DIR, str(lid))
+    if not os.path.exists(os.path.join(folder, "index.html")):
+        return f"<h1>Preview not built yet</h1><p>Run: python builder/build.py {lid}</p>", 404
+    return send_from_directory(folder, "index.html")
 
 
 @app.route("/api/create-checkout", methods=["POST"])
 def create_checkout():
     d = request.json
     lead = get_lead(d.get("lead_id"))
-    if not lead: return jsonify({"error": "Not found"}), 404
+    if not lead:
+        return jsonify({"error": "Not found"}), 404
     try:
         s = stripe.checkout.Session.create(
             payment_method_types=["card"],
@@ -136,8 +153,9 @@ def capture_info():
         id INTEGER PRIMARY KEY AUTOINCREMENT, lead_id INTEGER, email TEXT,
         name TEXT, interest TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
     conn.execute("INSERT INTO info_requests (lead_id,email,name,interest) VALUES (?,?,?,?)",
-                 (d.get("lead_id"), d.get("email"), d.get("name",""), d.get("interest")))
-    conn.commit(); conn.close()
+                 (d.get("lead_id"), d.get("email"), d.get("name", ""), d.get("interest")))
+    conn.commit()
+    conn.close()
     print(f"INFO: {d.get('email')} - {d.get('interest')}")
     return jsonify({"status": "ok"})
 
