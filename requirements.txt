@@ -1,0 +1,8 @@
+requests
+beautifulsoup4
+openai
+jinja2
+stripe
+resend
+flask
+python-dotenv

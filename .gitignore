@@ -1,0 +1,9 @@
+.env
+__pycache__/
+*.pyc
+scanner/leads.db
+preview/sites/*
+!preview/sites/.gitkeep
+.DS_Store
+node_modules/
+*.log
